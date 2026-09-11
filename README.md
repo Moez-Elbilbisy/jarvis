@@ -38,7 +38,7 @@ action proceeds — a dead network can never stop you opening apps.
 Configure with `JARVIS_ACTION_GATE=0` (off) and `JARVIS_ACTION_GATE_TIMEOUT`.
 
 ### Deterministic fast path
-Direct commands (`open spotify`, `افتح ستيم`, `شغل فيك حاجة`) skip the AI entirely:
+Direct commands (`i.e open spotify`) skip the AI entirely:
 regex-matched, gated, executed — the 5-second ceiling is a worst case, not a norm.
 
 ### Spotify that actually plays
