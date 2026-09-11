@@ -1,0 +1,39 @@
+# Core
+python-dotenv>=1.0.0
+
+# AI
+google-genai>=2.0.0
+groq>=1.0.0
+
+# Google integrations via Composio
+composio>=1.0.0
+
+# GUI
+PyQt6>=6.5.0
+
+# Voice
+pyttsx3>=2.90
+SpeechRecognition>=3.10.0
+sounddevice>=0.4.6
+edge-tts>=7.0.0
+soundfile>=0.12.0
+
+# Vision (screen capture for Gemini vision)
+Pillow>=10.0.0
+
+# GUI automation (mouse/keyboard control, visual element location)
+PyAutoGUI>=0.9.54
+# Optional: enables confidence-based image matching in pc_locate_and_click
+# opencv-python>=4.8.0
+
+# Web scraping (static HTML extraction)
+beautifulsoup4>=4.12.0
+
+# Browser automation (dynamic JS pages; Selenium Manager auto-resolves chromedriver)
+selenium>=4.20.0
+
+# Database
+# sqlite3 is built-in
+
+# Utilities
+requests>=2.31.0

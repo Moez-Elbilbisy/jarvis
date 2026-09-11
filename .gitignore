@@ -1,0 +1,40 @@
+# ── Jarvis project repo ──────────────────────────────
+# Whitelist style: ignore everything at the root, then allow
+# only the Jarvis project files through.
+
+# Secrets & local data -- NEVER commit
+jarvis/.env
+.env
+*.env
+jarvis/data/
+jarvis.rar
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+output/
+*.spec.bak
+
+# OS noise
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+
+# ── Root whitelist (everything else in D:\projects stays out) ──
+/*
+!/.gitignore
+!/Jarvis.spec
+!/jarvis.ico
+!/jarvis/
+!/tests/
