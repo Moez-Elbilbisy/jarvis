@@ -143,15 +143,71 @@ def strip_wake_word(text: str) -> str:
     return " ".join(words).strip()
 
 
-def transcribe_frames(audio) -> Optional[str]:
-    """Transcribe concatenated float32 frames via SpeechRecognition.
+# ── Local STT: faster-whisper (offline, no rate limits) ──
 
-    Dual-language: tries every language in config.SPEECH_LANGUAGES on the
-    same audio (ar-EG Egyptian Arabic + en-US English), and returns BOTH
-    readings so the brain can use whichever it understands. Retries once
-    on transient network errors (IncompleteRead, timeouts).
+_whisper_model = None      # lazy singleton
+_whisper_failed = False    # import/init failed -> stop trying this process
+
+
+def _get_whisper():
+    """Lazy faster-whisper singleton (base model, int8, CPU).
+
+    Returns None when unavailable (not installed or LOCAL_STT disabled) so
+    callers fall back to the remote Google recognizer transparently.
+    """
+    global _whisper_model, _whisper_failed
+    if _whisper_failed:
+        return None
+    if _whisper_model is not None:
+        return _whisper_model
+    if not getattr(config, "LOCAL_STT", True):
+        _whisper_failed = True
+        return None
+    try:
+        from faster_whisper import WhisperModel
+        logger.info("Loading local Whisper (base/int8 on CPU) -- one-time cost")
+        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+        logger.info("Local Whisper ready -- offline transcription active")
+        return _whisper_model
+    except Exception as e:
+        logger.warning("faster-whisper unavailable (%s) -- using Google STT", e)
+        _whisper_failed = True
+        return None
+
+
+def transcribe_frames(audio) -> Optional[str]:
+    """Transcribe concatenated float32 frames -> text.
+
+    Primary: local faster-whisper (offline, no network drops or latency).
+    Fallback: SpeechRecognition's Google endpoint, trying every language in
+    config.SPEECH_LANGUAGES (ar-EG Egyptian Arabic + en-US English) and
+    returning BOTH readings so the brain can use whichever it understands.
     """
     import numpy as np
+
+    # 1) Local whisper first: auto-detects Arabic/English, no network.
+    model = _get_whisper()
+    if model is not None:
+        try:
+            mono = np.clip(audio, -1.0, 1.0).astype(np.float32)
+            # NB: faster-whisper takes raw 16kHz float32 (no sample_rate kwarg)
+            # -- our capture path already produces exactly that.
+            segments, info = model.transcribe(
+                mono,
+                language=None,          # auto-detect ar/en
+                beam_size=1, vad_filter=True,
+            )
+            texts = [seg.text.strip() for seg in segments if seg.text.strip()]
+            if texts:
+                text = " ".join(texts)
+                lang = getattr(info, "language", "?") or "?"
+                logger.info(" Heard (local whisper, %s): %s", lang, text)
+                return text
+            logger.info(" Local whisper heard nothing -- trying Google STT")
+        except Exception as e:
+            logger.warning(" Local whisper failed (%s) -- trying Google STT", e)
+
+    # 2) Remote Google recognizer (dual-language) as fallback.
     try:
         import speech_recognition as sr
     except ImportError:

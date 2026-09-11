@@ -17,6 +17,9 @@ SpeechRecognition>=3.10.0
 sounddevice>=0.4.6
 edge-tts>=7.0.0
 soundfile>=0.12.0
+# Local offline speech (optional but recommended):
+faster-whisper>=1.0.0
+piper-tts>=1.2.0
 
 # Vision (screen capture for Gemini vision)
 Pillow>=10.0.0

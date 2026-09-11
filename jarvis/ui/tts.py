@@ -42,6 +42,96 @@ def _has_arabic(text: str) -> bool:
     return bool(_ARABIC_RE.search(text or ""))
 _PLAYBACK_SAMPLE_RATE = 24000            # edge-tts mp3 native rate
 
+# ── Piper: offline neural TTS (CPU, ~100ms) ──────────────────
+# Voices auto-download on first use into jarvis/data/piper/ and are
+# reused forever after -- fully offline speech with no network.
+_PIPER_VOICES = {
+    # lang -> (file name, HF locale dir, quality dir)
+    "en": ("en_US-lessac-medium.onnx", "en_US", "medium"),
+    "ar": ("ar_JO-kareem-low.onnx", "ar_JO", "low"),
+}
+_piper_voice_cache = {}  # lang -> (voice_path, config_path)
+
+
+def _piper_voice(lang: str) -> Optional[str]:
+    """Ensure the Piper voice for lang exists locally; return its path."""
+    if lang in _piper_voice_cache:
+        return _piper_voice_cache[lang]
+    spec = _PIPER_VOICES.get(lang)
+    if not spec:
+        return None
+    name, locale, quality = spec
+    vdir = Path(config.DATA_DIR) / "piper" if hasattr(config, "DATA_DIR") \
+        else Path(__file__).resolve().parent.parent / "data" / "piper"
+    vdir.mkdir(parents=True, exist_ok=True)
+    vpath = vdir / name
+    cfg_path = vpath.with_suffix(vpath.suffix + ".json")
+    if not vpath.exists() or not cfg_path.exists():
+        # Official voice repo layout: <lang>/<locale>/<model>/<quality>/<file>
+        base = ("https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
+                f"{lang}/{locale}/{name.split('-')[-2]}/{quality}/{name}")
+        try:
+            import requests
+            if not vpath.exists():
+                logger.info("Downloading Piper voice %s (one-time)...", name)
+                r = requests.get(base, timeout=120, stream=True)
+                r.raise_for_status()
+                tmp = vpath.with_suffix(".tmp")
+                with open(tmp, "wb") as f:
+                    for chunk in r.iter_content(1 << 15):
+                        f.write(chunk)
+                tmp.replace(vpath)
+            # Piper also needs the companion .onnx.json config alongside.
+            if not cfg_path.exists():
+                r2 = requests.get(base + ".json", timeout=60)
+                r2.raise_for_status()
+                cfg_path.write_bytes(r2.content)
+        except Exception as e:
+            logger.warning("Piper voice download failed (%s)", e)
+            return None
+    _piper_voice_cache[lang] = str(vpath)
+    return str(vpath)
+
+
+def _speak_piper(text: str) -> bool:
+    """Synthesize locally with Piper and play. True on success.
+
+    Fully offline: no network, no API keys, no rate limits. Arabic text
+    uses the kareem voice; everything else uses lessac.
+    """
+    try:
+        from piper import PiperVoice
+        import wave
+        import soundfile as sf
+        import numpy as np
+        import sounddevice as sd
+    except ImportError:
+        return False
+    lang = "ar" if _has_arabic(text) else "en"
+    vpath = _piper_voice(lang)
+    if not vpath:
+        return False
+    try:
+        voice = PiperVoice.load(vpath)
+        wav_path = Path(tempfile.gettempdir()) / f"jarvis_piper_{int(time.time()*1000)}.wav"
+        # piper >= 1.8: synthesize_wav writes the full WAV (format included).
+        with wave.open(str(wav_path), "wb") as wf:
+            voice.synthesize_wav(text, wf)
+        data, sr_ = sf.read(str(wav_path), dtype="float32")
+        if data.ndim > 1:
+            data = data.mean(axis=1)
+        data = np.clip(data * config.TTS_VOLUME, -1.0, 1.0)
+        sd.play(data, sr_)
+        sd.wait()
+        try:
+            wav_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        logger.debug("piper TTS failed (%s); trying online voices", e)
+        return False
+
 
 class Speaker:
     """
@@ -123,7 +213,11 @@ class Speaker:
             self._playing.set()
             try:
                 if not self._speak_edge(text):
-                    self._speak_pyttsx3(text)
+                    # edge-tts needs the network -- when offline, Piper
+                    # keeps a natural voice locally before the robotic
+                    # SAPI fallback (module-level helper).
+                    if not _speak_piper(text):
+                        self._speak_pyttsx3(text)
             except Exception as e:
                 logger.warning("TTS failed: %s", e)
             finally:

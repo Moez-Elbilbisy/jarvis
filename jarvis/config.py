@@ -56,6 +56,9 @@ OPENAI_COMPAT_PROVIDERS: dict[str, dict] = {
     "mistral":  {"base_url": "https://api.mistral.ai/v1"},
     "github":   {"base_url": "https://models.github.ai/inference"},
     "sambanova": {"base_url": "https://api.sambanova.ai/v1"},
+    # Local, offline, quota-free: Ollama running on this machine. Needs no
+    # API key; used when every cloud provider fails (full offline mode).
+    "ollama":   {"base_url": "http://localhost:11434/v1", "keyless": True},
 }
 
 # Fallback order (only providers with keys in .env are used)
@@ -75,6 +78,8 @@ FALLBACK_PROVIDERS: list[dict] = [
     {"provider": "mistral", "models": ["mistral-small-latest"]},
     {"provider": "github", "models": ["openai/gpt-4o-mini"]},
     {"provider": "sambanova", "models": ["Meta-Llama-3.3-70B-Instruct"]},
+    # Last resort: local Ollama (offline safety net -- no quota, no network).
+    {"provider": "ollama", "models": ["qwen2.5:3b", "qwen2.5:7b"]},
 ]
 
 # Model-ID keywords marking NON-chat endpoints (embeddings, rerankers,
@@ -129,6 +134,10 @@ ACTIVE_AMBIENT_MULTIPLIER: float = 1.3 # attention gate = ambient noise x this
 # under a too-high gate -> "wake miss" spam. Cap it so the passive gate can
 # never exceed a level a normal speaking voice always crosses.
 MAX_PASSIVE_GATE: float = 0.030
+
+# Local speech-to-text: use faster-whisper (offline) before Google's remote
+# recognizer. Set False to always use the remote path.
+LOCAL_STT: bool = True
 
 # Speech recognition languages, tried in order (Google free endpoint).
 # Primary ar-EG = Egyptian Arabic; results also cross-checked with en-US

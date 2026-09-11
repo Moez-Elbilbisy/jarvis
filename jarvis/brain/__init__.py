@@ -94,6 +94,44 @@ _PLAY_PRONOUNS = {"it", "that", "this", "one", "song",
 # so it can be reassigned without a `global` statement.
 _LAST_FAST_SONG = [None]
 
+# Generic / mood-based song requests: bypassing the fast path on these lets
+# the AI pick a REAL track ("شغل اي اغنيه" must not search Spotify for the
+# literal word "اي"). Specific titles still fast-path untouched.
+def _norm_ar(text: str) -> str:
+    """Unify Arabic alef/ta-marbuta/alef-maksura variants + lowercase."""
+    out = (text or "").lower().strip()
+    for src, dst in (("أ", "ا"), ("إ", "ا"), ("آ", "ا"),
+                     ("ة", "ه"), ("ى", "ي")):
+        out = out.replace(src, dst)
+    return out
+
+
+_GENERIC_OR_MOOD_PHRASES = {
+    "اي", "اي حاجه", "اي اغنيه", "حاجه", "اغاني", "مزيكا", "ميوزك",
+    "رايقه", "هاديه", "حزينه", "فرفوشه", "حماسيه",
+    "any", "anything", "something", "some music", "random", "music",
+    "song", "songs", "tunes", "playlist",
+    "chill", "relaxing", "upbeat", "sad", "vibe",
+    # articles: so "play a song" / "شغل الاغاني" fully normalize to generic
+    "a", "an", "the", "يا",
+    # taste-related: let the AI choose
+    "علي ذوقك", "على ذوقك", "ذوقك", "something good", "any good",
+    "اي حاجه حلوه", "حاجه حلوه",
+}
+_GENERIC_OR_MOOD_PHRASES = {_norm_ar(p) for p in _GENERIC_OR_MOOD_PHRASES}
+
+
+def _is_generic_song_request(song: str) -> bool:
+    """True if the whole song phrase is generic/mood-based ("اي حاجه",
+    "something chill") rather than a concrete title/artist."""
+    norm = _norm_ar(song)
+    if not norm:
+        return False
+    if norm in _GENERIC_OR_MOOD_PHRASES:
+        return True
+    words = norm.split()
+    return bool(words) and all(w in _GENERIC_OR_MOOD_PHRASES for w in words)
+
 
 def _fast_path_command(user_input: str):
     """Match a basic PC command and return (tool, args) or None.
@@ -225,6 +263,11 @@ def _fast_path_command(user_input: str):
             song = " ".join(words).strip(" .,!؟.،")
             if not song:
                 return None  # bare "play" -> AI asks what to play
+            # Generic/mood request ("شغل اي اغنيه", "play something chill")
+            # -> hand to the AI, which picks a CONCRETE fitting track instead
+            # of searching Spotify for the literal mood word.
+            if _is_generic_song_request(song):
+                return None
             # "play it" / "play that again" -> replay the last search.
             core = [w for w in song.lower().split()
                     if w not in ("again", "تاني")]
@@ -1610,8 +1653,14 @@ class JarvisBrain:
             meta = OPENAI_COMPAT_PROVIDERS.get(prov, {})
             key_env = f"{prov.upper()}_API_KEY"
             api_key = os.getenv(key_env, "")
-            if not api_key or not meta.get("base_url"):
+            # Keyless providers (local Ollama) need no API key -- they are
+            # the offline safety net when every cloud provider is down.
+            if not api_key and not meta.get("keyless"):
                 continue  # no key configured for this provider
+            if not meta.get("base_url"):
+                continue
+            if not api_key:
+                api_key = "ollama"  # OpenAI SDK requires a non-empty string
 
             # max_retries=0: the chain itself is the retry mechanism --
             # any model that fails moves on to the next one instantly.
